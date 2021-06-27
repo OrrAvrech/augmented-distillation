@@ -8,16 +8,15 @@ import numpy as np
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
-import datasets
-from utils.data import Dataset, openml_checker, mixopml_checker, regsopml_checker
+from utils.data import Dataset, get_ds_type
 from models.transformer import BRT
 
 parser = argparse.ArgumentParser()
 
 # Optim params
-parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
+parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
 parser.add_argument('--weight_decay', type=float, default=1e-6, help='weight_decay')
 parser.add_argument('--anneal_learning_rate', default=False, action='store_true',
                     help='Whether to anneal the learning rate.')
@@ -43,11 +42,11 @@ parser.add_argument('--test_batch_size', type=int, default=1000, help='input bat
 parser.add_argument('--num_workers', type=int, default=4, help='number of workers (default: 4)')
 
 # ram/tam params
-parser.add_argument('--hidden_size', type=int, default=100, help='hidden size (default: 100)')
-parser.add_argument('--num_heads', type=int, default=5, help='num of multiattention head (default: 5)')
-parser.add_argument('--num_layers', type=int, default=1, help='num of layers(default: 1)')
+parser.add_argument('--hidden_size', type=int, default=32, help='hidden size (default: 32)')
+parser.add_argument('--num_heads', type=int, default=8, help='num of multiattention head (default: 8)')
+parser.add_argument('--num_layers', type=int, default=4, help='num of layers(default: 4)')
 parser.add_argument('--dropout', default=0.1, type=float, help='dropout rate(default: 0.1)')
-parser.add_argument('--n_components', type=int, default=5, help='number of mixture component (default: 5)')
+parser.add_argument('--n_components', type=int, default=100, help='number of mixture component (default: 100)')
 parser.add_argument('--max_gradient_norm', type=float, default=5, help='Max gradient norm')
 parser.add_argument('--enable_tnsb', default=False, action='store_true', help='enable tensorboardX')
 parser.add_argument('--save_test_pt', default=False, action='store_true', help='save test .pt')
@@ -201,10 +200,10 @@ def main():
 
     ####
     # train and evalution checkpoints, log folders, ck file names
-    log_dir = Path(args.log_dir)
+    log_dir = Path(args.log_dir) / args.log_id
     log_dir.mkdir(parents=True, exist_ok=True)
     # create folder for save checkpoints
-    ckpt_dir = Path(args.check_point_dir)
+    ckpt_dir = Path(args.check_point_dir) / args.log_id
     ck_fname_part, log_file_dir, fname_csv_eval = setup_log_checkpoints(log_dir, ckpt_dir,
                                                                         args.datasetname, args.alg_name, args.log_id)
     print(ck_fname_part, log_file_dir, fname_csv_eval)
@@ -227,17 +226,8 @@ def main():
     ##############################
     # dataset builder/loader
     ##############################
-    if openml_checker(args.datasetname)[0]:
-        dataset = getattr(datasets, 'GENERIC')(args.data_dir, args.datasetname)
 
-    elif mixopml_checker(args.datasetname)[0]:
-        dataset = getattr(datasets, 'MIXDATA')(args.data_dir, args.datasetname)
-
-    elif regsopml_checker(args.datasetname)[0]:
-        dataset = getattr(datasets, 'REGSDATA')(args.data_dir, args.datasetname)
-
-    else:
-        raise ValueError(args.datasetname + " is not supported")
+    dataset = get_ds_type(args.datasetname, args.data_dir)
 
     args.train_size = dataset.train.N
     args.val_size = dataset.val.N
@@ -281,9 +271,11 @@ def main():
     # learning rate scheduler
     if args.anneal_learning_rate:
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, args.max_epochs * len(train_loader), 0)
-
     else:
         scheduler = None
+
+    # Tensorboard writer
+    tb_writer = SummaryWriter(log_dir=log_dir)
 
     print(optimizer)
     print(scheduler)
@@ -294,10 +286,7 @@ def main():
     #############################
     # define some req vars
     epoch_counter = 0
-    best_iter = 0
     best_val_loss = -1e10
-    best_model = None
-    tsb_writer = None
 
     stats_logs = {'train_losses': [],
                   'best_val_epoch': -1,
@@ -322,7 +311,7 @@ def main():
         #######
         # evaluate model on val dataset
         #######
-        val_loss, val_llist = evaluate(model, val_loader, device)
+        val_loss, val_list = evaluate(model, val_loader, device)
 
         #######
         # logging
@@ -332,6 +321,13 @@ def main():
 
         if scheduler is not None:
             stats_logs['lr'].append((epoch, scheduler.get_lr()))
+            tb_writer.add_scalar('Learning-rate', scheduler.get_last_lr()[0], epoch)
+        else:
+            tb_writer.add_scalar('Learning-rate', optimizer.param_groups[0]['lr'], epoch)
+
+        # write to Tensorboard
+        tb_writer.add_scalar('Loss/train', train_loss, epoch)
+        tb_writer.add_scalar('Loss/validation', val_loss, epoch)
 
         #######
         # keep track of best model
@@ -342,9 +338,9 @@ def main():
             best_model = copy.deepcopy(model)
             stats_logs['best_val_loss'] = best_val_loss
             stats_logs['best_val_epoch'] = best_iter
-            stats_logs['best_val_mu_std'] = [np.mean(val_llist).item(), np.std(val_llist).item()]
+            stats_logs['best_val_mu_std'] = [np.mean(val_list).item(), np.std(val_list).item()]
 
-            # take a snpshot and print
+            # take a snapshot and print
             if epoch > 1:  # and  args.save_freq % (epoch) == 0:
                 save_this_time = True
                 print("Saving best (current) val model at epoch %d " % epoch)

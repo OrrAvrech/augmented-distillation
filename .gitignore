@@ -2,3 +2,5 @@
 ck/
 env/
 .idea
+log_dir/
+*.pyc

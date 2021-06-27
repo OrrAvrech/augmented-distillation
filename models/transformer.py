@@ -146,6 +146,36 @@ class BRT(nn.Module):
 
         return mu, a, h, pi
 
+    def compute_conditionals(self, mu, a, pi, i):
+        if self.n_components == 1:
+
+            # generate sample xi =  mu + eps * a.exp()
+            # [B, i+1] ==> [B, 1]
+            mu, a = mu[:, i:i + 1], a[:, i:i + 1]
+            cat = torch.distributions.Normal(mu, a.exp())
+            batch_samples = cat.sample().squeeze(-1)  # [B, 1] ==> [B]
+
+        else:
+            # [B, i+1 , C] ==> [B, 1 , C]
+            mu, a, pi = mu[:, i:i + 1, :], a[:, i:i + 1, :], pi[:, i:i + 1, :]
+
+            # normalize pi ([B, 1 , C] - [B, 1, 1] ==> [B, i+1 , C])
+            # .squeeze(-2) ==> [B, 1 , C] ==> [B, C]
+            logpi = (pi - pi.logsumexp(-1, keepdim=True)).squeeze(-2)
+
+            # idx ==> [B, C] ==> [B] ==> unsqueeze ==> [B, 1]
+            idxz = torch.distributions.Categorical(logits=logpi).sample().unsqueeze(-1)
+
+            # mu [B, 1, C] ==> squeeze(-2) ==> [B, C]
+            mu_z = torch.gather(mu.squeeze(-2), 1, idxz)  # [B, 1]
+            au_z = torch.gather(a.squeeze(-2), 1, idxz)  # [B, 1]
+
+            # now sample
+            cat = torch.distributions.Normal(mu_z, au_z.exp())
+            batch_samples = cat.sample().squeeze(-1)  # [B, 1] ==> [B]
+
+        return batch_samples
+
     def get_logprob(self, xin, use_all_dims=False):
         """
           This function returns -logprobs
@@ -237,33 +267,8 @@ class BRT(nn.Module):
                     noise_temp = noise.clone()
                     noise_temp[:, i] = 0
                     mu, a, _, pi = self(noise_temp, mid=i)  # mu, a, pi ==> [B, D, C]
-
-                    if self.n_components == 1:
-
-                        # step 5: generate sample xi =  mu + eps * a.exp()
-                        # [B, i+1] ==> [B, 1]
-                        mu, a = mu[:, i:i + 1], a[:, i:i + 1]
-                        cat = torch.distributions.Normal(mu, a.exp())
-                        noise[:, i] = cat.sample().squeeze(-1)  # [B, 1] ==> [B]
-
-                    else:
-                        # [B, i+1 , C] ==> [B, 1 , C]
-                        mu, a, pi = mu[:, i:i + 1, :], a[:, i:i + 1, :], pi[:, i:i + 1, :]
-
-                        # normalize pi ([B, 1 , C] - [B, 1, 1] ==> [B, i+1 , C])
-                        # .squeeze(-2) ==> [B, 1 , C] ==> [B, C]
-                        logpi = (pi - pi.logsumexp(-1, keepdim=True)).squeeze(-2)
-
-                        # idx ==> [B, C] ==> [B] ==> unsqueeze ==> [B, 1]
-                        idxz = torch.distributions.Categorical(logits=logpi).sample().unsqueeze(-1)
-
-                        # mu [B, 1, C] ==> squeeze(-2) ==> [B, C]
-                        mu_z = torch.gather(mu.squeeze(-2), 1, idxz)  # [B, 1]
-                        au_z = torch.gather(a.squeeze(-2), 1, idxz)  # [B, 1]
-
-                        # now sample
-                        cat = torch.distributions.Normal(mu_z, au_z.exp())
-                        noise[:, i] = cat.sample().squeeze(-1)  # [B, 1] ==> [B]
+                    batch_samples = self.compute_conditionals(mu, a, pi, i)
+                    noise[:, i] = batch_samples
 
                 # keep results per round
                 out_per_round.append(noise.clone())
@@ -276,3 +281,11 @@ class BRT(nn.Module):
         out_per_round = torch.stack(out_per_round, dim=0)
 
         return noise, out_per_round
+
+    def batch_feed_forward(self, input_data):
+        mid = np.random.randint(input_data.shape[1])
+        samples = input_data.clone()
+        mu, a, _, pi = self(input_data, mid=mid)
+        batch_samples = self.compute_conditionals(mu, a, pi, mid)
+        samples[:, mid] = batch_samples
+        return samples

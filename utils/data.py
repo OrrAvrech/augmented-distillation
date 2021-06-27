@@ -1,4 +1,5 @@
 import torch
+import datasets
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -87,3 +88,18 @@ def regsopml_checker(iname):
 
     else:
         return False, False, None
+
+
+def get_ds_type(dataset_name, data_dir):
+    if openml_checker(dataset_name)[0]:
+        dataset = getattr(datasets, 'GENERIC')(data_dir, dataset_name)
+
+    elif mixopml_checker(dataset_name)[0]:
+        dataset = getattr(datasets, 'MIXDATA')(data_dir, dataset_name)
+
+    elif regsopml_checker(dataset_name)[0]:
+        dataset = getattr(datasets, 'REGSDATA')(data_dir, dataset_name)
+
+    else:
+        raise ValueError(dataset_name + " is not supported")
+    return dataset
