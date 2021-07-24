@@ -18,10 +18,8 @@ class GENERIC:
             self.x = data.astype(np.float32)
             self.N = self.x.shape[0]    
 
-    def __init__(self, root, subname):
-        root_path = Path(root)
-        fname_csv = root_path / subname / f"{subname}.csv"
-
+    def __init__(self, data_path):
+        fname_csv = Path(data_path)
         features, train, val, mu, st, header_names = load_and_normalize(fname_csv)
 
         self.features = self.Data(features)

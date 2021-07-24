@@ -8,13 +8,26 @@ import numpy as np
 import pandas as pd
 
 
-def sample_conditionals(data_loader, model, num_iter):
+def sample_single_conditional(data, model, num_iter, mid=None):
+    conditionals = []
+    for i in range(num_iter):
+        with torch.no_grad():
+            if mid is None:
+                mid = np.random.randint(data.shape[1])
+            batch_conditionals = model.batch_feed_forward(data, mid=mid)
+            conditionals += list(batch_conditionals.numpy())
+    return conditionals
+
+
+def sample_batch_conditionals(data_loader, model, num_iter, mid=None):
     conditionals = []
     for i in range(num_iter):
         for batch_idx, data in enumerate(data_loader):
             data_fetch = data.to(model.device)
             with torch.no_grad():
-                batch_conditionals = model.batch_feed_forward(data_fetch)
+                if mid is None:
+                    mid = np.random.randint(data_fetch.shape[1])
+                batch_conditionals = model.batch_feed_forward(data_fetch, mid=mid)
                 conditionals += list(batch_conditionals.numpy())
     return conditionals
 
@@ -37,17 +50,17 @@ def denormalize(samples, mu, std):
 
 
 def main():
-    dataset_name = 'phoneme'
-    data_dir = Path('./datasets/openml')
-    batch_size = 32
-    sampler = 'gibbs'
+    dataset_name = 'bivariate_normals'
+    data_path = Path('./datasets/synth/bivariate_normals/bivariate_normals.csv')
+    batch_size = 1
+    sampler = 'cond'
     gibbs_rounds = 1
-    num_iter = 5
-    model_path = Path('ck/2021_06_27_1136/phoneme_brt_2021_06_27_1136.pt')
-    model_params_path = Path('ck/2021_06_27_1136/phoneme_brt_2021_06_27_1136.json')
-    aug_samples_csv_path = data_dir / dataset_name / f"{dataset_name}_{sampler}_{num_iter}_1136.csv"
+    num_iter = 2000
+    model_path = Path('ck/bivariate_normals_2021_07_11_0043/bivariate_brt_bivariate_normals_2021_07_11_0043.pt')
+    model_params_path = Path('ck/bivariate_normals_2021_07_11_0043/bivariate_brt_bivariate_normals_2021_07_11_0043.json')
+    aug_samples_csv_path = data_path.parent / f"{dataset_name}_{sampler}_{num_iter}.csv"
 
-    dataset = get_ds_type(dataset_name, data_dir)
+    dataset = get_ds_type(dataset_name, data_path)
     train_ds = Dataset(data_obj=dataset.train)
     data_loader = DataLoader(train_ds,
                              batch_size=batch_size,
@@ -67,11 +80,12 @@ def main():
     if sampler == 'gibbs':
         dists = sample_gibbs(gibbs_rounds, data_loader, model, num_iter)
     else:
-        dists = sample_conditionals(data_loader, model, num_iter)
+        # dists = sample_batch_conditionals(data_loader, model, num_iter)
+        dists = sample_single_conditional(torch.tensor([[-0.365398493, -4.203630746]]), model, num_iter, mid=0)
 
     samples = denormalize(dists, dataset.mu, dataset.st)
     samples = np.array(samples)
-    samples_df = pd.DataFrame(data=samples, index=np.arange(0, np.shape(samples)[0]), columns=dataset.header_names[:-1])
+    samples_df = pd.DataFrame(data=samples, index=list(np.arange(0, len(samples))), columns=dataset.header_names[:-1])
     samples_df.to_csv(aug_samples_csv_path, index=False)
 
 

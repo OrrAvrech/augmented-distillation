@@ -282,8 +282,7 @@ class BRT(nn.Module):
 
         return noise, out_per_round
 
-    def batch_feed_forward(self, input_data):
-        mid = np.random.randint(input_data.shape[1])
+    def batch_feed_forward(self, input_data, mid):
         samples = input_data.clone()
         mu, a, _, pi = self(input_data, mid=mid)
         batch_samples = self.compute_conditionals(mu, a, pi, mid)

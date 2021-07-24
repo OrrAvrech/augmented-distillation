@@ -90,16 +90,14 @@ def regsopml_checker(iname):
         return False, False, None
 
 
-def get_ds_type(dataset_name, data_dir):
-    if openml_checker(dataset_name)[0]:
-        dataset = getattr(datasets, 'GENERIC')(data_dir, dataset_name)
+def get_ds_type(dataset_name, data_path):
 
-    elif mixopml_checker(dataset_name)[0]:
-        dataset = getattr(datasets, 'MIXDATA')(data_dir, dataset_name)
+    if mixopml_checker(dataset_name)[0]:
+        dataset = getattr(datasets, 'MIXDATA')(data_path, dataset_name)
 
     elif regsopml_checker(dataset_name)[0]:
-        dataset = getattr(datasets, 'REGSDATA')(data_dir, dataset_name)
+        dataset = getattr(datasets, 'REGSDATA')(data_path, dataset_name)
 
     else:
-        raise ValueError(dataset_name + " is not supported")
+        dataset = getattr(datasets, 'GENERIC')(data_path)
     return dataset

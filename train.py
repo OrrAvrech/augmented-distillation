@@ -21,7 +21,7 @@ parser.add_argument('--weight_decay', type=float, default=1e-6, help='weight_dec
 parser.add_argument('--anneal_learning_rate', default=False, action='store_true',
                     help='Whether to anneal the learning rate.')
 
-parser.add_argument('--data_dir', default='./datasets/openml')
+parser.add_argument('--data_path', default='./datasets/openml/phoneme.csv"')
 parser.add_argument('--datasetname', default='phoneme')
 parser.add_argument('--seed', type=int, default=1)
 parser.add_argument('--alg_name', type=str, default='brt')
@@ -48,8 +48,6 @@ parser.add_argument('--num_layers', type=int, default=4, help='num of layers(def
 parser.add_argument('--dropout', default=0.1, type=float, help='dropout rate(default: 0.1)')
 parser.add_argument('--n_components', type=int, default=100, help='number of mixture component (default: 100)')
 parser.add_argument('--max_gradient_norm', type=float, default=5, help='Max gradient norm')
-parser.add_argument('--enable_tnsb', default=False, action='store_true', help='enable tensorboardX')
-parser.add_argument('--save_test_pt', default=False, action='store_true', help='save test .pt')
 
 
 def take_snapshot(args, ck_fname_part, bst_model, update, stats, save_test=False):
@@ -227,7 +225,7 @@ def main():
     # dataset builder/loader
     ##############################
 
-    dataset = get_ds_type(args.datasetname, args.data_dir)
+    dataset = get_ds_type(args.datasetname, args.data_path)
 
     args.train_size = dataset.train.N
     args.val_size = dataset.val.N

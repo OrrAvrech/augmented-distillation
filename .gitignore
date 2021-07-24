@@ -4,3 +4,4 @@ env/
 .idea
 log_dir/
 *.pyc
+*.csv
