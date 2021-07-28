@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from utils.data import Dataset, get_ds_type
-from models.transformer import BRT
+from models.transformer import CondEncoder
 
 parser = argparse.ArgumentParser()
 
@@ -24,8 +24,8 @@ parser.add_argument('--anneal_learning_rate', default=False, action='store_true'
 parser.add_argument('--data_path', default='./datasets/openml/phoneme.csv"')
 parser.add_argument('--datasetname', default='phoneme')
 parser.add_argument('--seed', type=int, default=1)
-parser.add_argument('--alg_name', type=str, default='brt')
-parser.add_argument('--max_epochs', type=int, default=4, help='number of epochs to train (default: 1000)')
+parser.add_argument('--alg_name', type=str, default='cond_encoder')
+parser.add_argument('--epochs', type=int, default=4, help='number of epochs to train (default: 1000)')
 parser.add_argument('--disable_cuda', default=False, action='store_true')
 parser.add_argument('--cuda_deterministic', default=False, action='store_true')
 parser.add_argument('--gpu_id', default=0, type=int)
@@ -74,7 +74,7 @@ def take_snapshot(args, ck_fname_part, bst_model, update, stats, save_test=False
 def setup_log_checkpoints(log_dir, check_point_dir, datasetname, alg_name, log_id):
 
     check_point_dir.mkdir(parents=True, exist_ok=True)
-    te_name = datasetname.split('_')[0]    # make sure to remove long name with _
+    te_name = datasetname.split('_')[0]     # make sure to remove long name with _
     fname = f"{str.lower(te_name)}_{alg_name}_{log_id}"
     fname_log = log_dir / fname
     fname_eval = fname_log / 'eval.csv'
@@ -168,6 +168,35 @@ def evaluate(current_model, curr_loader, device, dset='Val'):
     return val_loss / len(curr_loader.dataset), res_list
 
 
+def setup_cuda(disable_cuda, cuda_deterministic, set_num_threads, num_workers):
+    cuda_avaliable = torch.cuda.is_available()
+    using_cuda = False
+
+    if not disable_cuda and cuda_avaliable:
+        gpu_id = "cuda:0"  # + str(args.gpu_id)
+        device = torch.device(gpu_id)
+        using_cuda = True
+
+    else:
+        device = torch.device('cpu')
+        print("**** No GPU detected or GPU usage is disabled, sorry! ****")
+
+    if not disable_cuda and cuda_avaliable and cuda_deterministic:
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+
+    if set_num_threads:
+        torch.set_num_threads(1)
+
+    if using_cuda:
+        kwargs = {'num_workers': num_workers, 'pin_memory': True}
+
+    else:
+        kwargs = {}
+
+    return device, kwargs
+
+
 def main():
     args = parser.parse_args()
     print('------------')
@@ -177,24 +206,10 @@ def main():
     ##############################
     # Generic setups
     ##############################
-    CUDA_AVAL = torch.cuda.is_available()
-    using_cuda = False
-
-    if not args.disable_cuda and CUDA_AVAL:
-        gpu_id = "cuda:0"  # + str(args.gpu_id)
-        device = torch.device(gpu_id)
-        using_cuda = True
-
-    else:
-        device = torch.device('cpu')
-        print("**** No GPU detected or GPU usage is disabled, sorry! ****")
-
-    if not args.disable_cuda and CUDA_AVAL and args.cuda_deterministic:
-        torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.deterministic = True
-
-    if args.set_num_threads:
-        torch.set_num_threads(1)
+    device, kwargs = setup_cuda(args.disable_cuda,
+                                args.cuda_deterministic,
+                                args.set_num_threads,
+                                args.num_workers)
 
     ####
     # train and evalution checkpoints, log folders, ck file names
@@ -232,12 +247,6 @@ def main():
     dst_train = Dataset(data_obj=dataset.train)
     dst_valid = Dataset(data_obj=dataset.val)
 
-    if using_cuda:
-        kwargs = {'num_workers': args.num_workers, 'pin_memory': True}
-
-    else:
-        kwargs = {}
-
     train_loader = DataLoader(dst_train,
                               batch_size=args.batch_size,
                               shuffle=True,
@@ -251,105 +260,24 @@ def main():
     ##############################
     # Build model/alg and optim
     ##############################
-    if str.lower(args.alg_name) == 'brt':
+    if str.lower(args.alg_name) == 'cond_encoder':
 
-        model = BRT(hidden_size=args.hidden_size,
-                    num_heads=args.num_heads,
-                    num_layers=args.num_layers,
-                    dropout=args.dropout,
-                    n_components=args.n_components,
-                    device=device)
+        model = CondEncoder(hidden_size=args.hidden_size,
+                            num_heads=args.num_heads,
+                            num_layers=args.num_layers,
+                            dropout=args.dropout,
+                            n_components=args.n_components,
+                            device=device,
+                            lr=args.lr,
+                            weight_decay=args.weight_decay,
+                            anneal_learning_rate=args.anneal_learning_rate,
+                            epochs=args.epochs,
+                            max_gradient_norm=args.max_gradient_norm)
 
     else:
         raise ValueError("%s alg is not supported" % args.alg_name)
 
-    print("Creating %s model.." % (str.upper(args.alg_name)))
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-
-    # learning rate scheduler
-    if args.anneal_learning_rate:
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, args.max_epochs * len(train_loader), 0)
-    else:
-        scheduler = None
-
-    # Tensorboard writer
-    tb_writer = SummaryWriter(log_dir=log_dir)
-
-    print(optimizer)
-    print(scheduler)
-    model.to(device)
-
-    ##############################
-    # Train and eval
-    #############################
-    # define some req vars
-    epoch_counter = 0
-    best_val_loss = -1e10
-
-    stats_logs = {'train_losses': [],
-                  'best_val_epoch': -1,
-                  'val_losses': [],
-                  'best_val_loss': -1,
-                  'best_test_loss': -1,
-                  'lr': [(0, args.lr)],
-                  'best_val_mu_std': [],
-                  }
-
-    # just to keep params
-    take_snapshot(args, ck_fname_part, model, 0, stats_logs)
-
-    for epoch in range(args.max_epochs):
-        print('\nEpoch: {}'.format(epoch))
-
-        #######
-        # train the model for one epoch
-        #######
-        epoch_counter, train_loss = train(model, train_loader, optimizer, scheduler, epoch_counter, args, device)
-
-        #######
-        # evaluate model on val dataset
-        #######
-        val_loss, val_list = evaluate(model, val_loader, device)
-
-        #######
-        # logging
-        #######
-        stats_logs['val_losses'].append(val_loss)
-        stats_logs['train_losses'].append(train_loss)
-
-        if scheduler is not None:
-            stats_logs['lr'].append((epoch, scheduler.get_lr()))
-            tb_writer.add_scalar('Learning-rate', scheduler.get_last_lr()[0], epoch)
-        else:
-            tb_writer.add_scalar('Learning-rate', optimizer.param_groups[0]['lr'], epoch)
-
-        # write to Tensorboard
-        tb_writer.add_scalar('Loss/train', train_loss, epoch)
-        tb_writer.add_scalar('Loss/validation', val_loss, epoch)
-
-        #######
-        # keep track of best model
-        #######
-        if val_loss > best_val_loss:
-            best_iter = epoch
-            best_val_loss = val_loss
-            best_model = copy.deepcopy(model)
-            stats_logs['best_val_loss'] = best_val_loss
-            stats_logs['best_val_epoch'] = best_iter
-            stats_logs['best_val_mu_std'] = [np.mean(val_list).item(), np.std(val_list).item()]
-
-            # take a snapshot and print
-            if epoch > 1:  # and  args.save_freq % (epoch) == 0:
-                save_this_time = True
-                print("Saving best (current) val model at epoch %d " % epoch)
-
-            else:
-                save_this_time = False
-
-            take_snapshot(args, ck_fname_part, best_model, epoch, stats_logs, save_test=save_this_time)
-            print('Best validation at epoch {}: Average Log Likelihood in nats: {:.4f}'.
-                  format(best_iter, best_val_loss))
-
+    model.fit(train_loader)
     print('Done.')
 
 

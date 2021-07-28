@@ -5,3 +5,5 @@ env/
 log_dir/
 *.pyc
 *.csv
+*.ipynb_checkpoints/
+*.pkl

@@ -42,15 +42,16 @@ class CondEncoder(nn.Module):
 
     def __init__(self, input_size=1,
                  output_size=1,
-                 hidden_size=25,
-                 num_heads=5,
-                 num_layers=1,
+                 hidden_size=32,
+                 num_heads=8,
+                 num_layers=4,
                  dropout=0.1,
-                 n_components=1,
+                 n_components=100,
                  s_act='identity',
                  max_len_pos=1000,
                  device='cpu',
                  lr=3e-4,
+                 weight_decay=1e-6,
                  anneal_learning_rate=False,
                  epochs=10,
                  max_gradient_norm=5,
@@ -107,6 +108,7 @@ class CondEncoder(nn.Module):
 
         # fit params
         self.lr = lr
+        self.weight_decay = weight_decay
         self.anneal_learning_rate = anneal_learning_rate
         self.epochs = epochs
         self.max_gradient_norm = max_gradient_norm
