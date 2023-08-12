@@ -1,7 +1,4 @@
 # augmented-distillation
-<p align="center">
-  <img src="./figures/gibbs_distributions.PNG">
-</p>
 
 ## Abstract
 Model distillation of complex but accurate model ensembles into fast and simple models can benefit from a data augmentation strategy that aims to reduce the teacher-student error. 
