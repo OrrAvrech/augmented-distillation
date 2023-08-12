@@ -1,10 +1,6 @@
 # augmented-distillation
-<p align="right">
-  <img src="./figures/fast_daa_diagram.png">
-</p>
-
-<p align="left">
-  <img src="./figures/gibbs.png">
+<p align="center">
+  <img src="./figures/gibbs_distributions.PNG">
 </p>
 
 ## Abstract
