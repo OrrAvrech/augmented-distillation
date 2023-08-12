@@ -1,15 +1,11 @@
 import json
-import copy
 import random
 import argparse
 from pathlib import Path
 import numpy as np
 
 import torch
-import torch.optim as optim
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
-
 from utils.data import Dataset, get_ds_type
 from models.transformer import CondEncoder
 
@@ -80,92 +76,6 @@ def setup_log_checkpoints(log_dir, check_point_dir, datasetname, alg_name, log_i
     fname_eval = fname_log / 'eval.csv'
 
     return check_point_dir / fname, fname_log, fname_eval
-
-
-def train(model, train_loader, optimizer, scheduler, global_step, params, device):
-    """
-        Train the model
-    """
-    model.train()
-    train_loss = 0
-    seen_so_far = 0
-    mmd_loss_item = 0
-
-    for batch_idx, data in enumerate(train_loader):
-
-        ####
-        # fetch data
-        ####
-        data = data.to(device)
-        seen_so_far += data.shape[0]
-
-        ####
-        # loss cal
-        ####
-        d_data = data.shape[1]  # data is [B, D]
-        optimizer.zero_grad()
-        # nll: negative log likelihood
-        logprobs = model.get_logprob(data) / d_data
-        train_loss += logprobs.sum().item()
-        nll = -logprobs.mean()
-
-        ####
-        # backward and optim
-        ####
-        nll.backward()
-
-        # check if we clipping
-        if params.max_gradient_norm is not None:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), params.max_gradient_norm)
-
-        # run optim
-        optimizer.step()
-
-        ####
-        # scheduler
-        ####
-        if scheduler is not None:
-            scheduler.step()
-
-        ####
-        # log data
-        ####
-        if global_step % params.log_interval == 0 or global_step == 1:
-            print('Train Log likelihood, step %d in nats: %.6f' % (global_step, train_loss / seen_so_far))
-
-        global_step += 1
-
-    print("Train epoch average loss: %f\n" % (train_loss/seen_so_far))
-    return global_step, train_loss / seen_so_far
-
-
-def evaluate(current_model, curr_loader, device, dset='Val'):
-    """
-        Test or evaluate current model
-    """
-    current_model.eval()
-    val_loss = 0
-    res_list = []
-
-    for batch_idx, data in enumerate(curr_loader):
-
-        ####
-        # fetch data
-        ####
-        data = data.to(device)
-
-        ####
-        # get model performance
-        ####
-        with torch.no_grad():
-            out_losses = current_model.get_logprob(data, use_all_dims=True)
-            val_loss += out_losses.sum().item()
-            res_list.extend(out_losses.cpu().numpy())
-
-    print(dset + ',Log likelihood in nats: {:.6f}'.format(
-            val_loss / len(curr_loader.dataset)))
-
-    return val_loss / len(curr_loader.dataset), res_list
 
 
 def setup_cuda(disable_cuda, cuda_deterministic, set_num_threads, num_workers):
