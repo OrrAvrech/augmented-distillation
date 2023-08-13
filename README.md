@@ -15,6 +15,10 @@ In this work, we wanted to address some of the observed limitations in [[1]](#re
   2. One major limitation in FAST-DAD, and in knowledge distillation in general, is the fact the student's performance is bounded by the accuracy of teacher predictions. Being able to provide reliable predictions by the teacher, could potentially improve the distillation error. Therefore, we suggest using conformal prediction by the teacher. Conformal prediction can be used for any black-box algorithm and can be applied on several tasks, such as classification [[2]](#references) and regression [[3]](#references). Therefore, it sounds appealing to use this technique as a part of the generic framework of FAST-DAD.
 
 ## Results
+<p float="left">
+  <img src="./figures/gibbs_res.png" />
+  <img src="./figures/cond_res.png" /> 
+</p>
 
 ## References
 [[1]](https://arxiv.org/abs/2006.14284) Rasool Fakoor, Jonas Mueller, Nick Erickson, Pratik Chaudhari, and Alexan-
